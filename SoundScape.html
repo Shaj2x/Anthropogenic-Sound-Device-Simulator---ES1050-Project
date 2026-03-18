@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Noise Monitor — Live Microphone</title>
+<style>
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f4f4f2;
+    --bg-tertiary: #eaeae6;
+    --text-primary: #1a1a1a;
+    --text-secondary: #6b6b6b;
+    --border-color: rgba(0,0,0,0.12);
+    --border-hover: rgba(0,0,0,0.25);
+    --green: #1d9e75;
+    --green-bg: #e1f5ee;
+    --green-text: #0f6e56;
+    --red: #e24b4a;
+    --red-bg: #fcebeb;
+    --red-text: #a32d2d;
+    --blue: #378add;
+    --blue-bg: #e6f1fb;
+    --blue-text: #185fa5;
+    --amber: #ba7517;
+    --amber-bg: #faeeda;
+    --amber-text: #854f0b;
+    --gray-bg: #f1efe8;
+    --gray-text: #5f5e5a;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-primary: #1a1a2e;
+      --bg-secondary: #232340;
+      --bg-tertiary: #2a2a4a;
+      --text-primary: #e8e8e8;
+      --text-secondary: #9a9ab0;
+      --border-color: rgba(255,255,255,0.1);
+      --border-hover: rgba(255,255,255,0.2);
+      --green-bg: #085041;
+      --green-text: #5dcaa5;
+      --red-bg: #501313;
+      --red-text: #f09595;
+      --blue-bg: #042c53;
+      --blue-text: #85b7eb;
+      --amber-bg: #412402;
+      --amber-text: #fac775;
+      --gray-bg: #2c2c2a;
+      --gray-text: #b4b2a9;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 1.5rem;
+    max-width: 820px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 20px; font-weight: 500; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: var(--text-secondary); margin-bottom: 1.5rem; }
+  .mic-notice {
+    background: var(--amber-bg);
+    color: var(--amber-text);
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    margin-bottom: 1rem;
+    display: none;
+  }
+  .controls { display: flex; gap: 10px; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  button {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    padding: 8px 18px;
+    border: 0.5px solid var(--border-hover);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+  button:hover { background: var(--bg-secondary); }
+  button:active { transform: scale(0.98); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .status-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  .badge { font-size: 11px; padding: 3px 10px; border-radius: var(--radius); font-weight: 500; }
+  .badge-on { background: var(--green-bg); color: var(--green-text); }
+  .badge-off { background: var(--red-bg); color: var(--red-text); }
+  .badge-rec { background: var(--red-bg); color: var(--red-text); }
+  .badge-sleep { background: var(--blue-bg); color: var(--blue-text); }
+  .badge-idle { background: var(--gray-bg); color: var(--gray-text); }
+  .badge-mic { background: var(--green-bg); color: var(--green-text); }
+  .timer-box {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+  .timer-label { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+  .timer-ring { position: relative; width: 120px; height: 120px; margin: 0 auto 8px; }
+  .timer-ring svg { transform: rotate(-90deg); }
+  .timer-ring-text {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 28px; font-weight: 500; font-family: var(--font-mono); color: var(--text-primary);
+  }
+  .timer-sub { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+  .live-db {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 12px;
+  }
+  .live-db-value {
+    font-size: 36px;
+    font-weight: 500;
+    font-family: var(--font-mono);
+  }
+  .live-db-label { font-size: 12px; color: var(--text-secondary); }
+  .db-bar-wrap {
+    width: 100%;
+    max-width: 400px;
+    height: 12px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 8px auto 0;
+  }
+  .db-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.1s, background 0.3s;
+    background: var(--green);
+  }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px;
+    margin-bottom: 1rem;
+  }
+  .metric { background: var(--bg-secondary); border-radius: var(--radius); padding: 1rem; }
+  .metric-label {
+    font-size: 11px; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+  }
+  .metric-value { font-size: 20px; font-weight: 500; font-family: var(--font-mono); }
+  .section-label { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin: 1.5rem 0 0.5rem; }
+  .canvas-wrap {
+    margin: 0.5rem 0 1rem; height: 140px;
+    border: 0.5px solid var(--border-color);
+    border-radius: var(--radius); overflow: hidden;
+    background: var(--bg-secondary);
+  }
+  .wave-canvas { width: 100%; height: 100%; display: block; }
+  .freq-canvas-wrap {
+    margin: 0.5rem 0 1rem; height: 120px;
+    border: 0.5px solid var(--border-color);
+    border-radius: var(--radius); overflow: hidden;
+    background: var(--bg-secondary);
+  }
+  .progress-container { margin: 1rem 0; }
+  .prog-header {
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;
+  }
+  .progress-bar { height: 6px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .progress-rec { background: var(--red); }
+  .progress-sleep { background: var(--blue); }
+  .terminal {
+    background: #0d0d1a; color: #00ff88;
+    border-radius: var(--radius-lg); padding: 1rem;
+    font-size: 11px; font-family: var(--font-mono);
+    line-height: 1.7; height: 220px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .csv-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 0.5rem; }
+  .csv-table th, .csv-table td {
+    padding: 6px 8px; text-align: left;
+    border-bottom: 0.5px solid var(--border-color);
+  }
+  .csv-table th {
+    color: var(--text-secondary); font-weight: 500;
+    font-size: 11px; text-transform: uppercase;
+  }
+  .csv-table td { font-family: var(--font-mono); font-size: 11px; }
+  .pass { color: var(--green); }
+  .fail { color: var(--red); }
+  .led {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #333; display: inline-block;
+    border: 1px solid var(--border-hover); transition: background 0.2s;
+  }
+  .noise-level-quiet { color: var(--green); }
+  .noise-level-moderate { color: var(--amber); }
+  .noise-level-loud { color: var(--red); }
+</style>
+</head>
+<body>
+  <h1>Anthropogenic noise monitor</h1>
+  <p class="subtitle">Live microphone input — records and analyzes real sound from your environment</p>
+
+  <div class="mic-notice" id="micNotice">
+    Your browser will ask for microphone permission. Click "Allow" to enable live sound measurement.
+  </div>
+
+  <div class="controls">
+    <button id="powerBtn" onclick="togglePower()" style="min-width: 110px;">Power ON</button>
+    <button id="stopBtn" onclick="stopDevice()" disabled>Stop</button>
+    <button onclick="resetSim()">Reset</button>
+  </div>
+
+  <div class="status-bar">
+    <span class="badge badge-off" id="powerBadge">Power: OFF</span>
+    <span class="badge badge-idle" id="stateBadge">Idle</span>
+    <span class="badge badge-idle" id="micBadge" style="display:none;">Mic: --</span>
+    <span id="cycleBadge" style="font-size: 12px; color: var(--text-secondary);">Cycle: 0</span>
+    <span class="led" id="ledIndicator"></span>
+    <span style="font-size: 11px; color: var(--text-secondary);">LED</span>
+  </div>
+
+  <div class="timer-box">
+    <div class="timer-label" id="timerLabel">Device is off</div>
+    <div class="timer-ring">
+      <svg width="120" height="120" viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border-color)" stroke-width="6"/>
+        <circle id="timerArc" cx="60" cy="60" r="52" fill="none" stroke="var(--border-color)" stroke-width="6"
+          stroke-dasharray="326.73" stroke-dashoffset="0" stroke-linecap="round"/>
+      </svg>
+      <div class="timer-ring-text" id="timerDisplay">--:--</div>
+    </div>
+    <div class="timer-sub" id="timerSub">Click Power ON to start</div>
+    <div class="live-db" id="liveDbSection" style="display:none;">
+      <div>
+        <div class="live-db-value" id="liveDbValue">-- dB</div>
+        <div class="live-db-label">Live sound level</div>
+      </div>
+    </div>
+    <div class="db-bar-wrap" id="dbBarWrap" style="display:none;">
+      <div class="db-bar-fill" id="dbBarFill" style="width: 0%;"></div>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><div class="metric-label">Avg RMS</div><div class="metric-value" id="mRms">--</div></div>
+    <div class="metric"><div class="metric-label">Avg dB</div><div class="metric-value" id="mDb">--</div></div>
+    <div class="metric"><div class="metric-label">Peak freq</div><div class="metric-value" id="mFreq">--</div></div>
+    <div class="metric"><div class="metric-label">Max dB</div><div class="metric-value" id="mMax">--</div></div>
+    <div class="metric"><div class="metric-label">Min dB</div><div class="metric-value" id="mMin">--</div></div>
+    <div class="metric"><div class="metric-label">Samples</div><div class="metric-value" id="mSamples">--</div></div>
+  </div>
+
+  <div class="section-label">Live waveform</div>
+  <div class="canvas-wrap"><canvas class="wave-canvas" id="waveCanvas"></canvas></div>
+
+  <div class="section-label">Frequency spectrum</div>
+  <div class="freq-canvas-wrap"><canvas class="wave-canvas" id="freqCanvas"></canvas></div>
+
+  <div class="progress-container">
+    <div class="prog-header">
+      <span id="progLabel">Waiting...</span>
+      <span id="progPct"></span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill progress-rec" id="progFill" style="width: 0%;"></div></div>
+  </div>
+
+  <div class="section-label">Serial monitor</div>
+  <div class="terminal" id="terminal"></div>
+
+  <div class="section-label">CSV data log (noise_log.csv)</div>
+  <table class="csv-table">
+    <thead><tr>
+      <th>Timestamp</th><th>Avg dB</th><th>Max dB</th><th>Min dB</th>
+      <th>Peak Hz</th><th>RMS</th><th>Level</th>
+    </tr></thead>
+    <tbody id="csvBody"></tbody>
+  </table>
+</body>
+
+<script>
+const RECORD_SECONDS = 10;
+const SLEEP_SECONDS = 20;
+const CIRCUMFERENCE = 2 * Math.PI * 52;
+const FFT_SIZE = 2048;
+
+let powerOn = false, running = false, aborted = false, cycle = 0;
+let audioCtx, analyser, micStream, dataArray, freqArray, sourceNode;
+let termEl = document.getElementById('terminal');
+let animFrameId = null;
+
+function log(msg) {
+  termEl.textContent += msg + '\n';
+  termEl.scrollTop = termEl.scrollHeight;
+}
+
+function setTimer(label, seconds, total, sub, color) {
+  document.getElementById('timerLabel').textContent = label;
+  let m = Math.floor(seconds / 60);
+  let s = seconds % 60;
+  document.getElementById('timerDisplay').textContent =
+    String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  document.getElementById('timerSub').textContent = sub;
+  let pct = total > 0 ? seconds / total : 0;
+  let offset = CIRCUMFERENCE * (1 - pct);
+  let arc = document.getElementById('timerArc');
+  arc.style.stroke = color;
+  arc.setAttribute('stroke-dashoffset', offset);
+}
+
+function getTimestamp() {
+  let d = new Date();
+  let pad = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) +
+    ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function noiseLevel(db) {
+  if (db < 40) return { label: 'Quiet', cls: 'noise-level-quiet' };
+  if (db < 65) return { label: 'Moderate', cls: 'noise-level-moderate' };
+  return { label: 'Loud', cls: 'noise-level-loud' };
+}
+
+async function initMicrophone() {
+  try {
+    document.getElementById('micNotice').style.display = 'block';
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    document.getElementById('micNotice').style.display = 'none';
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = FFT_SIZE;
+    analyser.smoothingTimeConstant = 0.3;
+
+    sourceNode = audioCtx.createMediaStreamSource(micStream);
+    sourceNode.connect(analyser);
+
+    dataArray = new Float32Array(analyser.fftSize);
+    freqArray = new Uint8Array(analyser.frequencyBinCount);
+
+    document.getElementById('micBadge').style.display = '';
+    document.getElementById('micBadge').className = 'badge badge-mic';
+    document.getElementById('micBadge').textContent = 'Mic: Live';
+
+    log('[MIC] Microphone connected successfully');
+    log('[MIC] Sample rate: ' + audioCtx.sampleRate + ' Hz');
+    log('[MIC] FFT size: ' + FFT_SIZE);
+    log('');
+    return true;
+  } catch (e) {
+    document.getElementById('micNotice').style.display = 'block';
+    document.getElementById('micNotice').textContent =
+      'Microphone access denied. Please allow mic access and try again.';
+    log('[ERROR] Microphone access denied: ' + e.message);
+    return false;
+  }
+}
+
+function getRMS() {
+  analyser.getFloatTimeDomainData(dataArray);
+  let sum = 0;
+  for (let i = 0; i < dataArray.length; i++) {
+    sum += dataArray[i] * dataArray[i];
+  }
+  return Math.sqrt(sum / dataArray.length);
+}
+
+function getDB(rms) {
+  if (rms < 0.00001) return 0;
+  let db = 20 * Math.log10(rms);
+  return Math.round(Math.max(0, db + 94) * 10) / 10;
+}
+
+function getPeakFrequency() {
+  analyser.getByteFrequencyData(freqArray);
+  let maxVal = 0, maxIdx = 0;
+  for (let i = 1; i < freqArray.length; i++) {
+    if (freqArray[i] > maxVal) {
+      maxVal = freqArray[i];
+      maxIdx = i;
+    }
+  }
+  let freq = maxIdx * audioCtx.sampleRate / analyser.fftSize;
+  return Math.round(freq);
+}
+
+function drawLiveWaveform() {
+  let canvas = document.getElementById('waveCanvas');
+  let ctx = canvas.getContext('2d');
+  if (canvas.width !== canvas.offsetWidth * 2) {
+    canvas.width = canvas.offsetWidth * 2;
+    canvas.height = canvas.offsetHeight * 2;
+  }
+  let w = canvas.width, h = canvas.height;
+
+  analyser.getFloatTimeDomainData(dataArray);
+
+  let bg = getComputedStyle(document.documentElement)
+    .getPropertyValue('--bg-secondary').trim() || '#f4f4f2';
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = '#00aa66';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+
+  let step = Math.max(1, Math.floor(dataArray.length / w));
+  for (let i = 0; i < w; i++) {
+    let idx = Math.min(i * step, dataArray.length - 1);
+    let y = h / 2 - dataArray[idx] * (h / 2) * 0.95;
+    if (i === 0) ctx.moveTo(i, y); else ctx.lineTo(i, y);
+  }
+  ctx.stroke();
+}
+
+function drawFrequencySpectrum() {
+  let canvas = document.getElementById('freqCanvas');
+  let ctx = canvas.getContext('2d');
+  if (canvas.width !== canvas.offsetWidth * 2) {
+    canvas.width = canvas.offsetWidth * 2;
+    canvas.height = canvas.offsetHeight * 2;
+  }
+  let w = canvas.width, h = canvas.height;
+
+  analyser.getByteFrequencyData(freqArray);
+
+  let bg = getComputedStyle(document.documentElement)
+    .getPropertyValue('--bg-secondary').trim() || '#f4f4f2';
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  let barCount = Math.min(freqArray.length, 256);
+  let barW = w / barCount;
+
+  for (let i = 0; i < barCount; i++) {
+    let val = freqArray[i] / 255;
+    let barH = val * h * 0.9;
+
+    let hue = 140 - val * 100;
+    ctx.fillStyle = 'hsl(' + hue + ', 70%, 50%)';
+    ctx.fillRect(i * barW, h - barH, barW - 1, barH);
+  }
+
+  ctx.fillStyle = 'var(--text-secondary)';
+  ctx.font = '18px ' + getComputedStyle(document.documentElement)
+    .getPropertyValue('--font-mono').trim();
+  ctx.fillText('0 Hz', 4, h - 4);
+  let midFreq = Math.round(audioCtx.sampleRate / 4);
+  ctx.fillText(midFreq + ' Hz', w / 2 - 40, h - 4);
+}
+
+function updateLiveDb() {
+  if (!analyser || !running) return;
+  let rms = getRMS();
+  let db = getDB(rms);
+
+  let el = document.getElementById('liveDbValue');
+  el.textContent = db.toFixed(1) + ' dB';
+  let level = noiseLevel(db);
+  el.className = 'live-db-value ' + level.cls;
+
+  let pct = Math.min(100, (db / 100) * 100);
+  let bar = document.getElementById('dbBarFill');
+  bar.style.width = pct + '%';
+  if (db < 40) bar.style.background = 'var(--green)';
+  else if (db < 65) bar.style.background = 'var(--amber)';
+  else bar.style.background = 'var(--red)';
+
+  drawLiveWaveform();
+  drawFrequencySpectrum();
+
+  animFrameId = requestAnimationFrame(updateLiveDb);
+}
+
+async function togglePower() {
+  if (!powerOn) {
+    let micOk = await initMicrophone();
+    if (!micOk) return;
+
+    powerOn = true;
+    aborted = false;
+    running = true;
+    document.getElementById('powerBtn').textContent = 'Power OFF';
+    document.getElementById('powerBadge').className = 'badge badge-on';
+    document.getElementById('powerBadge').textContent = 'Power: ON';
+    document.getElementById('stopBtn').disabled = false;
+    document.getElementById('liveDbSection').style.display = '';
+    document.getElementById('dbBarWrap').style.display = '';
+
+    log('========================================');
+    log('  NOISE MONITOR — LIVE MICROPHONE');
+    log('  Using: ' + (navigator.userAgent.includes('Mac') ? 'MacBook' : 'Device') + ' mic');
+    log('========================================');
+    log('');
+    log('[START] Recording ' + RECORD_SECONDS + 's every ' + SLEEP_SECONDS + 's');
+    log('        (Real hardware: 30s every 5 min)');
+    log('');
+
+    updateLiveDb();
+    runLoop();
+  } else {
+    stopDevice();
+  }
+}
+
+function stopDevice() {
+  powerOn = false;
+  running = false;
+  aborted = true;
+  if (animFrameId) cancelAnimationFrame(animFrameId);
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  if (audioCtx) audioCtx.close();
+  audioCtx = null; analyser = null; micStream = null;
+
+  document.getElementById('powerBtn').textContent = 'Power ON';
+  document.getElementById('powerBadge').className = 'badge badge-off';
+  document.getElementById('powerBadge').textContent = 'Power: OFF';
+  document.getElementById('stateBadge').className = 'badge badge-idle';
+  document.getElementById('stateBadge').textContent = 'Idle';
+  document.getElementById('stopBtn').disabled = true;
+  document.getElementById('ledIndicator').style.background = '#333';
+  document.getElementById('micBadge').style.display = 'none';
+  document.getElementById('liveDbSection').style.display = 'none';
+  document.getElementById('dbBarWrap').style.display = 'none';
+  setTimer('Device is off', 0, 0, 'Click Power ON to start', 'var(--border-color)');
+  document.getElementById('progLabel').textContent = 'Stopped';
+  document.getElementById('progPct').textContent = '';
+  document.getElementById('progFill').style.width = '0%';
+  log('[SWITCH] Device turned OFF. Mic released.');
+  log('');
+}
+
+async function runLoop() {
+  while (running && !aborted) {
+    await doRecord();
+    if (!running || aborted) break;
+    await doSleep();
+  }
+}
+
+async function doRecord() {
+  if (!running || !analyser) return;
+  cycle++;
+  document.getElementById('cycleBadge').textContent = 'Cycle: ' + cycle;
+  document.getElementById('stateBadge').className = 'badge badge-rec';
+  document.getElementById('stateBadge').textContent = 'Recording';
+  document.getElementById('ledIndicator').style.background = '#00ff88';
+  document.getElementById('progFill').className = 'progress-fill progress-rec';
+
+  let ts = getTimestamp();
+  log('----------------------------------------');
+  log('  CYCLE #' + cycle + ' | ' + ts);
+  log('----------------------------------------');
+  log('[REC] Recording ' + RECORD_SECONDS + 's from microphone...');
+
+  let dbReadings = [];
+  let rmsReadings = [];
+  let freqReadings = [];
+
+  for (let sec = 1; sec <= RECORD_SECONDS; sec++) {
+    if (!running || aborted) return;
+
+    let rms = getRMS();
+    let db = getDB(rms);
+    let freq = getPeakFrequency();
+
+    dbReadings.push(db);
+    rmsReadings.push(rms);
+    freqReadings.push(freq);
+
+    let rem = RECORD_SECONDS - sec;
+    let pct = Math.round((sec / RECORD_SECONDS) * 100);
+    setTimer('Recording...', rem, RECORD_SECONDS,
+      sec + ' of ' + RECORD_SECONDS + 's captured', '#e24b4a');
+    document.getElementById('progLabel').textContent = 'Recording: ' + sec + '/' + RECORD_SECONDS + 's';
+    document.getElementById('progPct').textContent = pct + '%';
+    document.getElementById('progFill').style.width = pct + '%';
+
+    let bar = '';
+    let f = Math.round((sec / RECORD_SECONDS) * 20);
+    for (let b = 0; b < 20; b++) bar += b < f ? '#' : '-';
+    log('[REC] ' + sec + '/' + RECORD_SECONDS + 's [' + bar + '] ' +
+      db.toFixed(1) + ' dB | ' + freq + ' Hz');
+
+    await sleep(1000);
+  }
+
+  document.getElementById('ledIndicator').style.background = '#333';
+
+  let avgRms = rmsReadings.reduce((a,b) => a+b, 0) / rmsReadings.length;
+  let avgDb = dbReadings.reduce((a,b) => a+b, 0) / dbReadings.length;
+  let maxDb = Math.max(...dbReadings);
+  let minDb = Math.min(...dbReadings);
+
+  let freqCounts = {};
+  freqReadings.forEach(f => { freqCounts[f] = (freqCounts[f] || 0) + 1; });
+  let peakFreq = Object.entries(freqCounts).sort((a,b) => b[1] - a[1])[0][0];
+
+  document.getElementById('mRms').textContent = avgRms.toFixed(4);
+  document.getElementById('mDb').textContent = avgDb.toFixed(1);
+  document.getElementById('mFreq').textContent = peakFreq + ' Hz';
+  document.getElementById('mMax').textContent = maxDb.toFixed(1);
+  document.getElementById('mMin').textContent = minDb.toFixed(1);
+  document.getElementById('mSamples').textContent = dbReadings.length;
+
+  let level = noiseLevel(avgDb);
+
+  log('');
+  log('[RESULTS]');
+  log('  Avg dB:    ' + avgDb.toFixed(1) + ' (' + level.label + ')');
+  log('  Max dB:    ' + maxDb.toFixed(1));
+  log('  Min dB:    ' + minDb.toFixed(1));
+  log('  Peak freq: ' + peakFreq + ' Hz');
+  log('  Avg RMS:   ' + avgRms.toFixed(6));
+  log('[CSV] Row saved.');
+  log('');
+
+  let row = document.createElement('tr');
+  row.innerHTML = '<td>' + ts + '</td><td>' + avgDb.toFixed(1) + '</td><td>' +
+    maxDb.toFixed(1) + '</td><td>' + minDb.toFixed(1) + '</td><td>' +
+    peakFreq + '</td><td>' + avgRms.toFixed(4) + '</td><td><span class="' +
+    level.cls + '">' + level.label + '</span></td>';
+  document.getElementById('csvBody').prepend(row);
+}
+
+async function doSleep() {
+  if (!running) return;
+  document.getElementById('stateBadge').className = 'badge badge-sleep';
+  document.getElementById('stateBadge').textContent = 'Sleeping';
+  document.getElementById('progFill').className = 'progress-fill progress-sleep';
+  log('[SLEEP] ' + SLEEP_SECONDS + 's until next cycle');
+
+  for (let i = SLEEP_SECONDS; i > 0; i--) {
+    if (!running || aborted) return;
+    let pct = Math.round(((SLEEP_SECONDS - i) / SLEEP_SECONDS) * 100);
+    setTimer('Next recording in', i, SLEEP_SECONDS,
+      'Cycle #' + (cycle + 1) + ' coming up', '#378add');
+    document.getElementById('progLabel').textContent = 'Sleeping: ' + i + 's remaining';
+    document.getElementById('progPct').textContent = pct + '%';
+    document.getElementById('progFill').style.width = pct + '%';
+    await sleep(1000);
+  }
+  document.getElementById('progFill').style.width = '100%';
+}
+
+function resetSim() {
+  if (running) stopDevice();
+  cycle = 0;
+  document.getElementById('cycleBadge').textContent = 'Cycle: 0';
+  document.getElementById('mRms').textContent = '--';
+  document.getElementById('mDb').textContent = '--';
+  document.getElementById('mFreq').textContent = '--';
+  document.getElementById('mMax').textContent = '--';
+  document.getElementById('mMin').textContent = '--';
+  document.getElementById('mSamples').textContent = '--';
+  document.getElementById('progFill').style.width = '0%';
+  document.getElementById('progPct').textContent = '';
+  document.getElementById('progLabel').textContent = 'Waiting...';
+  setTimer('Device is off', 0, 0, 'Click Power ON to start', 'var(--border-color)');
+  termEl.textContent = '';
+  document.getElementById('csvBody').innerHTML = '';
+  let c1 = document.getElementById('waveCanvas');
+  c1.getContext('2d').clearRect(0, 0, c1.width, c1.height);
+  let c2 = document.getElementById('freqCanvas');
+  c2.getContext('2d').clearRect(0, 0, c2.width, c2.height);
+}
+</script>
+</html>
